@@ -1,5 +1,5 @@
 # 🏦 BankBot - Backend API
-🔗 Frontend Repository: github.com/grandemassone/bank-chatbot-frontend
+🔗 **Frontend Repository:** [View Frontend Client Code](https://github.com/grandemassone/bank-chatbot-frontend)
 
 The high-performance core of the BankBot system. This API handles secure banking logic, database transactions, and LLM orchestration.
 
