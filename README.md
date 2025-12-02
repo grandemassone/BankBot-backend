@@ -44,7 +44,7 @@ The chatbot utilizes a custom System Prompt designed for the financial sector to
    npm start
 Server running on http://localhost:3000.
 
-###🐳 Running with Docker
+### 🐳 Running with Docker
   ```bash
   docker build -t bankbot-backend .
   docker run -p 3000:3000 --env-file .env bankbot-backend
