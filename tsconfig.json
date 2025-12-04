@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    // --- Project Setup ---
+    "target": "ES2020",                             /* Specify ECMAScript target version */
+    "module": "CommonJS",                           /* Specify module code generation */
+    "moduleResolution": "node",                     /* Resolve modules using Node.js style */
+    "outDir": "./dist",                             /* Redirect output structure to this directory */
+    "rootDir": "./src",                             /* Specify the root directory of src files */
+    "esModuleInterop": true,                        /* Enables compatibility for default imports */
+    "forceConsistentCasingInFileNames": true,       /* Ensure file casing matches imports */
+
+    // --- Type Checking ---
+    "strict": true,                                 /* Enable all strict type-checking options */
+    "skipLibCheck": true,                           /* Skip type checking of declaration files */
+
+    // --- Advanced ---
+    "sourceMap": true,                              /* Emit src map files */
+    "lib": ["ES2020"],                              /* Specify a list of libraries to be included in the compilation */
+    "resolveJsonModule": true                       /* Allows importing modules with a .json extension */
+  },
+  "files": [
+    "src/types.d.ts"
+  ],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/*.spec.ts"
+  ]
+}
