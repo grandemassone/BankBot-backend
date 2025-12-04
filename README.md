@@ -38,7 +38,8 @@ The chatbot utilizes a custom System Prompt designed for the financial sector to
    ```bash
    DB_HOST=localhost
    DB_USER=your_user
-   DB_PASS=your_password
+   DB_PASSWORD=your_password
+   DB_DATABASE=bankbot
    LLM_API_KEY=your_api_key
 4. Start the server:
    ```bash
