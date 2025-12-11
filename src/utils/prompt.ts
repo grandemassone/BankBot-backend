@@ -1,3 +1,4 @@
+/*
 import fp from "fastify-plugin";
 import {FastifyInstance} from "fastify";
 
@@ -9,3 +10,4 @@ const promptPlugin = async (fastify: FastifyInstance) => {
 }
 
 export default fp(promptPlugin)
+*/

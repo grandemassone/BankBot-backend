@@ -13,12 +13,10 @@ class TransactionRepository {
         console.log("TransactionRepository inizializzato con Knex")
     }
 
-    //Find a user by id
     findById(id: string): Promise<Transaction | undefined> {
         return this.db('transactions').where('id', id).first()
     }
 
-    //Find a user by account id
     findAllTransactionsByAccountId(accountid: string): Promise<Transaction[] | undefined> {
         return this.db('transactions').where('accountid', accountid)
     }

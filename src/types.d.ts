@@ -9,5 +9,7 @@ declare module 'fastify' {
     userRepository: UserRepository;
     accountRepository: AccountRepository;
     transactionRepository: TransactionRepository;
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => void;
+    fastifyJwt: FastifyJWT;
   }
 }

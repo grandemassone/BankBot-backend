@@ -7,6 +7,10 @@ import {knexPlugin} from "./plugins/knex";
 import {generateAccessToken, generateRefreshToken} from "./utils/auth";
 import userRepositoryPlugin from "./repositories/userRepository";
 import argon2 from "argon2";
+import fastifyJwt from "@fastify/jwt";
+import accountRepositoryPlugin from "./repositories/accountRepository";
+import transactionRepositoryPlugin from "./repositories/transactionRepository";
+
 
 const fastify = Fastify({
     logger: true
@@ -19,9 +23,53 @@ fastify.register(fastifyCookie, {
     secret: process.env.COOKIE_SECRET,
     hook: 'onRequest', // Process cookies early in the lifecycle
 });
+fastify.register(fastifyJwt, {
+    secret: process.env.JWT_SECRET as string
+});
 fastify.register(fastifyWebsocket)
 fastify.register(knexPlugin)
 fastify.register(userRepositoryPlugin)
+fastify.register(accountRepositoryPlugin)
+fastify.register(transactionRepositoryPlugin)
+
+fastify.decorate('authenticate', async (request, reply) => {
+    // 1. Define the name of the cookie holding the token
+    const tokenCookieName = 'accessToken';
+
+    // 2. Retrieve the token from the cookies
+    const token = request.cookies[tokenCookieName];
+
+    if (!token) {
+        // If the cookie is not present, respond with an error
+        return reply.status(401).send({
+            message: 'Unauthorized: Access token cookie not found'
+        });
+    }
+
+    const unsignedToken = request.unsignCookie(token);
+
+    if (!unsignedToken.value) {
+        // If the cookie is not present, respond with an error
+        return reply.status(401).send({
+            message: 'Unauthorized: Access token cookie not found'
+        });
+    }
+
+    try {
+        // 3. Manually verify the retrieved token
+        // The decoded payload is stored in `request.user` upon successful verification.
+        const decoded = fastify.jwt.verify(unsignedToken.value)
+
+        // Optionally, you can ensure the decoded payload is attached to the request:
+        request.user = decoded || {}
+
+    } catch (err) {
+        // If verification fails (e.g., token invalid or expired)
+        reply.status(401).send({
+            message: 'Unauthorized: Invalid or expired token'
+        });
+    }
+});
 
 fastify.register(async function (fastify) {
     fastify.get('/', {websocket: true}, (socket, req: FastifyRequest) => {
@@ -39,7 +87,6 @@ fastify.register(async function (fastify) {
 
     //Login validation when sending a request, according to the json schema
     fastify.post('/login', {schema: {body: loginSchema}}, async (req, reply) => {
-        console.log(loginSchema)
         const {email, password} = req.body as LoginSchema
         const existingUser = await fastify.userRepository.findByEmail(email)
 
@@ -53,8 +100,15 @@ fastify.register(async function (fastify) {
             return reply.status(401).send({success: false, message: 'Password non valida'})
         }
 
-        const accessToken = generateAccessToken(existingUser)
-        const refreshToken = generateRefreshToken(existingUser)
+        //Utente senza password
+        const existingUserWithoutPassword = {
+            id: existingUser.id,
+            email: existingUser.email,
+            role: existingUser.role
+        }
+
+        const accessToken = fastify.jwt.sign(existingUserWithoutPassword)
+        const refreshToken = fastify.jwt.sign(existingUserWithoutPassword)
 
         reply.setCookie('refreshToken', refreshToken, {
             signed: true,
@@ -76,6 +130,13 @@ fastify.register(async function (fastify) {
 
         return {
             message: 'Login effettuato con successo'
+        }
+    })
+
+    fastify.get('/private', {onRequest: fastify.authenticate}, async (req, reply) => {
+        return {
+            message: 'Questo è un messaggio privato',
+            user: req.user
         }
     })
 })

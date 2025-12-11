@@ -25,7 +25,8 @@ export async function seed(knex: Knex) {
             email: faker.internet.email({ firstName, lastName }), // Email based on real name
             firstname: firstName,
             lastname: lastName,
-            password: await argon2.hash("demodemo")
+            password: await argon2.hash("demodemo"),
+            role: faker.helpers.arrayElement(['USER', 'USER', 'USER', 'USER', 'ADMIN'])
         });
     }
 
