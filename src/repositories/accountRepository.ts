@@ -26,4 +26,4 @@ const accountRepositoryPlugin: FastifyPluginAsync = async (fastify: FastifyInsta
     fastify.decorate('accountRepository', accountRepository)
 }
 
-export default fp(accountRepositoryPlugin, {dependencies: ['knex']})
+export default fp(accountRepositoryPlugin, {name: 'accountRepository',dependencies: ['knex']})

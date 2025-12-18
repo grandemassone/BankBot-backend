@@ -25,6 +25,11 @@ class UserRepository {
     findByEmail(email: string): Promise<User | undefined> {
         return this.db('users').where('email', email).first()
     }
+
+    //Create user
+    createUser(user: User): Promise<boolean> {
+        return this.db('users').insert(user)
+    }
 }
 
 const userRepositoryPlugin: FastifyPluginAsync = async (fastify: FastifyInstance) => {
@@ -32,4 +37,4 @@ const userRepositoryPlugin: FastifyPluginAsync = async (fastify: FastifyInstance
     fastify.decorate('userRepository', userRepository)
 }
 
-export default fp(userRepositoryPlugin, {dependencies: ['knex']})
+export default fp(userRepositoryPlugin, {name: 'userRepository', dependencies: ['knex']})

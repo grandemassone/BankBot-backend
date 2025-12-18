@@ -9,11 +9,11 @@ export async function seed(knex: Knex) {
     // 2. Then we delete the Accounts (because they depend on the Users)
     await knex('accounts').del();
 
-    // 3. Finally we can delete the Users (now they no longer have ties)
-    await knex('users').del();
+    // 3. Finally we can delete the 'ADMIN' (now they no longer have ties)
+    await knex('users').where({role: 'ADMIN'}).del();
 
     const usersToInsert = [];
-    const numberOfUsers = 100;
+    const numberOfUsers = 10;
 
     for (let i = 0; i < numberOfUsers; i++) {
         //First name and lastname to generate an email with real name and surname
@@ -26,7 +26,7 @@ export async function seed(knex: Knex) {
             firstname: firstName,
             lastname: lastName,
             password: await argon2.hash("demodemo"),
-            role: faker.helpers.arrayElement(['USER', 'USER', 'USER', 'USER', 'ADMIN'])
+            role: faker.helpers.arrayElement(['ADMIN'])
         });
     }
 

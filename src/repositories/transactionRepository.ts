@@ -27,4 +27,4 @@ const transactionRepositoryPlugin: FastifyPluginAsync = async (fastify: FastifyI
     fastify.decorate('transactionRepository', transactionRepository)
 }
 
-export default fp(transactionRepositoryPlugin, {dependencies: ['knex']})
+export default fp(transactionRepositoryPlugin, {name: 'transactionRepository', dependencies: ['knex']})

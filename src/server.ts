@@ -4,13 +4,18 @@ import {loginSchema, LoginSchema} from "./schemas/loginSchema";
 import fastifyCookie from "@fastify/cookie";
 import {serializerCompiler, validatorCompiler, ZodTypeProvider} from "fastify-type-provider-zod";
 import {knexPlugin} from "./plugins/knex";
-import {generateAccessToken, generateRefreshToken} from "./utils/auth";
 import userRepositoryPlugin from "./repositories/userRepository";
 import argon2 from "argon2";
 import fastifyJwt from "@fastify/jwt";
 import accountRepositoryPlugin from "./repositories/accountRepository";
 import transactionRepositoryPlugin from "./repositories/transactionRepository";
-
+import {User} from "./types";
+import {llmPlugin} from "./plugins/llm";
+import {prompterPlugin} from "./plugins/prompter";
+import {contextManagerPlugin} from "./plugins/contextManager";
+import {SignupSchema, signupSchema} from "./schemas/signupSchema";
+import * as repl from "node:repl";
+import {v4} from "uuid";
 
 const fastify = Fastify({
     logger: true
@@ -31,6 +36,9 @@ fastify.register(knexPlugin)
 fastify.register(userRepositoryPlugin)
 fastify.register(accountRepositoryPlugin)
 fastify.register(transactionRepositoryPlugin)
+fastify.register(llmPlugin)
+fastify.register(prompterPlugin)
+fastify.register(contextManagerPlugin)
 
 fastify.decorate('authenticate', async (request, reply) => {
     // 1. Define the name of the cookie holding the token
@@ -61,7 +69,7 @@ fastify.decorate('authenticate', async (request, reply) => {
         const decoded = fastify.jwt.verify(unsignedToken.value)
 
         // Optionally, you can ensure the decoded payload is attached to the request:
-        request.user = decoded || {}
+        request.user = decoded as User || {}
 
     } catch (err) {
         // If verification fails (e.g., token invalid or expired)
@@ -72,7 +80,7 @@ fastify.decorate('authenticate', async (request, reply) => {
 });
 
 fastify.register(async function (fastify) {
-    fastify.get('/', {websocket: true}, (socket, req: FastifyRequest) => {
+    fastify.get('/', {websocket: true, onRequest: fastify.authenticate}, (socket, req: FastifyRequest) => {
         socket.on('message', async (message: string) => {
             try {
                 await fastify.knex('chats').insert({
@@ -133,9 +141,64 @@ fastify.register(async function (fastify) {
         }
     })
 
+    fastify.post('/signup', {schema: {body: signupSchema}}, async (req, reply)=>{
+        const id = v4() //Genera un id
+        const { firstname, lastname, email, password } = req.body as SignupSchema
+
+        if (await fastify.userRepository.findByEmail(email)) {
+            return reply.status(404).send({success: false, message: 'Email già esistente'})
+        }
+
+        //Password cifrata
+        const hashedPassword = await argon2.hash(password)
+
+        await fastify.userRepository.createUser({id, firstname, lastname, email, password: hashedPassword, role: 'USER'})
+
+        //I return id
+        return {
+            id
+        }
+    })
+
     fastify.get('/private', {onRequest: fastify.authenticate}, async (req, reply) => {
+        if (!req.user) {
+            return reply.status(401).send({success: false, message: 'Utente non autenticato'})
+        }
+        if (req.user.role !== 'USER' && req.user.role !== 'ADMIN') {
+            return reply.status(401).send({success: false, message: 'Ruolo non valido'})
+        }
+
+        const actions = fastify.prompter[req.user.role]
+        console.log(actions)
+        if (!actions) {
+            return reply.status(401).send({success: false, message: 'Ruolo non valido'})
+        }
+
+        //Richiesta azione
+        const action = await fastify.askForAction("Vorrei i miei ultimi movimenti", actions)
+        if (!action) {
+            return reply.status(401).send({success: false, message: 'Azione non valida'})
+        }
+
+        console.log(action)
+
+        //Recupero contesto
+        const context = await fastify.contextManager[req.user.role][action](req.user.id)
+        if (!context) {
+            return reply.status(401).send({success: false, message: 'Contesto non valido'})
+        }
+
+        //Risposta finale
+        const executeResponse = await fastify.executeAction(actions[action], context)
+        if (!executeResponse) {
+            return reply.status(401).send({success: false, message: 'Risposta non valida'})
+        }
+
         return {
             message: 'Questo è un messaggio privato',
+            action,
+            context,
+            executeResponse,
             user: req.user
         }
     })
