@@ -80,7 +80,8 @@ fastify.decorate('authenticate', async (request, reply) => {
 });
 
 fastify.register(async function (fastify) {
-    fastify.get('/', {websocket: true, onRequest: fastify.authenticate}, (socket, req: FastifyRequest) => {
+    fastify.get('/:accessToken', {websocket: true, onRequest: fastify.authenticate}, (socket, req: FastifyRequest) => {
+        const accessToken = (req.params as {accessToken: string}).accessToken
         socket.on('message', async (message: string) => {
             try {
                 await fastify.knex('chats').insert({
@@ -139,6 +140,24 @@ fastify.register(async function (fastify) {
         return {
             message: 'Login effettuato con successo'
         }
+    })
+
+    fastify.post('/logout', async (req, reply) => {
+        const cookieOptions = {
+            path: '/',
+            secure: false, // Deve corrispondere a quanto settato nel login (true in prod)
+            sameSite: 'lax' as const,
+            httpOnly: true
+        }
+
+        // Istruisce il browser a rimuovere i cookie specifici
+        reply.clearCookie('accessToken', cookieOptions)
+        reply.clearCookie('refreshToken', cookieOptions)
+
+        return reply.send({
+            success: true,
+            message: 'Logout effettuato con successo'
+        })
     })
 
     fastify.post('/signup', {schema: {body: signupSchema}}, async (req, reply)=>{
