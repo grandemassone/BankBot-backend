@@ -16,6 +16,7 @@ import {contextManagerPlugin} from "./plugins/contextManager";
 import {SignupSchema, signupSchema} from "./schemas/signupSchema";
 import * as repl from "node:repl";
 import {v4} from "uuid";
+import cors from "@fastify/cors"
 
 const fastify = Fastify({
     logger: true
@@ -39,6 +40,7 @@ fastify.register(transactionRepositoryPlugin)
 fastify.register(llmPlugin)
 fastify.register(prompterPlugin)
 fastify.register(contextManagerPlugin)
+fastify.register(cors, {})
 
 fastify.decorate('authenticate', async (request, reply) => {
     // 1. Define the name of the cookie holding the token
@@ -142,6 +144,13 @@ fastify.register(async function (fastify) {
         }
     })
 
+    //Cookie da decodificare
+    fastify.get('/me', { onRequest: fastify.authenticate }, async (req, reply) => {
+        // req.user viene popolato dal decorator 'authenticate' decodificando il cookie
+
+        return { user: req.user };
+    });
+
     fastify.post('/logout', async (req, reply) => {
         const cookieOptions = {
             path: '/',
@@ -161,6 +170,7 @@ fastify.register(async function (fastify) {
     })
 
     fastify.post('/signup', {schema: {body: signupSchema}}, async (req, reply)=>{
+        console.log("Req: " + req)
         const id = v4() //Genera un id
         const { firstname, lastname, email, password } = req.body as SignupSchema
 
