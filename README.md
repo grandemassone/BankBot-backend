@@ -1,54 +1,161 @@
-# 🏦 BankBot - Backend API
-🔗 **Frontend Repository:** [View Frontend Client Code](https://github.com/grandemassone/bank-chatbot-frontend)
+# BankBot – Backend
 
-The high-performance core of the BankBot system. This API handles secure banking logic, database transactions, and LLM orchestration.
+API REST + WebSocket per l'assistente bancario BankBot, costruito con **Fastify**, **Knex**, **PostgreSQL** e **OpenAI**.
 
-## 🚀 Tech Stack
-* **Runtime:** Node.js
-* **Framework:** Fastify (Chosen for low overhead and high speed)
-* **Database:** PostgreSQL
-* **AI Integration:** LLM API (Context-aware responses)
-* **Architecture:** Modular REST API (Source folder structure)
+---
 
-## 🧠 AI System Logic
-The chatbot utilizes a custom System Prompt designed for the financial sector to ensure:
-* **Tone:** Professional, formal, and trustworthy.
-* **Constraints:** Strictly answers banking-related queries; refuses off-topic requests.
-* **Security:** Prevents generation of fake financial data (hallucinations).
+## Requisiti
 
-## 🗄️ Database Schema (PostgreSQL)
-* **Users:** Secure management of user profiles.
-* **Transactions:** Ledger of financial movements.
-* **Accounts:** Management of balances and currencies (CHF/EUR).
+| Tool | Versione minima |
+|------|----------------|
+| Node.js | 20.x |
+| npm | 9.x |
+| Docker + Docker Compose | qualsiasi versione recente |
 
-## 🛠️ How to Run Locally
+---
 
-### Prerequisites
-* Node.js (v18+)
-* PostgreSQL running locally or via Docker
+## 1. Clonazione del repository
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone [https://github.com/grandemassone/bank-chatbot-backend.git](https://github.com/grandemassone/bank-chatbot-backend.git)
-2. Install dependencies:
-   ```bash
-   npm install
-3. Configure Environment Variables: Create a .env file in the root directory:
-   ```bash
-   DB_HOST=localhost
-   DB_USER=your_user
-   DB_PASSWORD=your_password
-   DB_DATABASE=bankbot
-   LLM_API_KEY=your_api_key
-4. Start the server:
-   ```bash
-   npm start
-Server running on http://localhost:3000.
+```bash
+git clone <url-del-repository>
+cd BankBot-backend
+```
 
-### 🐳 Running with Docker
-  ```bash
-  docker build -t bankbot-backend .
-  docker run -p 3000:3000 --env-file .env bankbot-backend
-  ```
-Developed by Salvador Davide Passarelli during internship at WeBeetle.
+---
+
+## 2. Variabili d'ambiente
+
+Crea un file `.env` nella root del progetto copiando il seguente template:
+
+```env
+# Database
+DB_HOST=localhost
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_DATABASE=bankbot
+
+# Auth
+JWT_SECRET=supersecretjwtkey
+COOKIE_SECRET=supersecretcookiekey
+
+# OpenAI
+OPENAI_API_KEY=sk-...
+```
+
+> **Nota:** `COOKIE_SECRET` deve essere una stringa di almeno 32 caratteri.
+
+---
+
+## 3. Avvio del database con Docker
+
+Il progetto include un `docker-compose.yml` che avvia PostgreSQL 15.
+
+```bash
+docker compose up -d
+```
+
+Verifica che il container sia in esecuzione:
+
+```bash
+docker ps
+# Deve comparire: bankbot-database  (0.0.0.0:5432->5432/tcp)
+```
+
+---
+
+## 4. Installazione delle dipendenze
+
+```bash
+npm install
+```
+
+---
+
+## 5. Esecuzione delle migrazioni
+
+Le migrazioni creano tutte le tabelle necessarie nel database.
+
+```bash
+npx knex migrate:latest --knexfile src/knexfile.ts
+```
+
+Le migrazioni vengono eseguite nell'ordine seguente:
+
+| File | Tabelle create |
+|------|---------------|
+| `20260327130000_create_base_tables` | `users`, `accounts`, `transactions`, `chats` |
+| `20260327140000_create_conversations` | `conversations` |
+| `20260327140001_create_messages` | `messages` |
+| `20260327140002_add_indexes` | Indici di performance |
+| `20260422101000_add_conversation_metadata` | Colonne `title`, `title_source`, `preview` |
+
+Per eseguire il rollback dell'ultima migrazione:
+
+```bash
+npx knex migrate:rollback --knexfile src/knexfile.ts
+```
+
+---
+
+## 6. Esecuzione dei seed
+
+I seed popolano il database con dati di esempio (10 utenti con ruolo ADMIN, conti e transazioni).
+
+```bash
+npx knex seed:run --knexfile src/knexfile.ts
+```
+
+> **Attenzione:** i seed cancellano i dati esistenti in `transactions`, `accounts` e gli utenti ADMIN prima di reinserirli.
+
+---
+
+## 7. Avvio dell'applicazione
+
+### Modalità sviluppo (con ts-node)
+
+```bash
+npm run start:dev
+```
+
+### Modalità produzione
+
+```bash
+npm run build
+npm start
+```
+
+Il server è disponibile su `http://localhost:3000`.
+
+---
+
+## 8. Test
+
+```bash
+npm test
+```
+
+---
+
+## Riepilogo comandi
+
+```bash
+# 1. Clona
+git clone <url> && cd BankBot-backend
+
+# 2. Crea .env (vedi sezione 2)
+
+# 3. Avvia database
+docker compose up -d
+
+# 4. Installa dipendenze
+npm install
+
+# 5. Migrazioni
+npx knex migrate:latest --knexfile src/knexfile.ts
+
+# 6. Seed
+npx knex seed:run --knexfile src/knexfile.ts
+
+# 7. Avvia server
+npm run start:dev
+```
