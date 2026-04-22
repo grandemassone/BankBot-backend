@@ -1,7 +1,8 @@
-import * as dotenv from "dotenv"
+import * as dotenv from 'dotenv';
+import path from 'path';
 dotenv.config({
-    path: "../.env"
-})
+    path: path.resolve(__dirname, '../.env')
+});
 
 export default {
     client: 'pg',

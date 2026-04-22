@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import Fastify, {FastifyRequest} from 'fastify'
 import fastifyWebsocket from "@fastify/websocket";
 import {loginSchema, LoginSchema} from "./schemas/loginSchema";
@@ -9,17 +10,21 @@ import argon2 from "argon2";
 import fastifyJwt from "@fastify/jwt";
 import accountRepositoryPlugin from "./repositories/accountRepository";
 import transactionRepositoryPlugin from "./repositories/transactionRepository";
+import conversationRepositoryPlugin from "./repositories/conversationRepository";
+import messageRepositoryPlugin from "./repositories/messageRepository";
 import {User} from "./types";
 import {llmPlugin} from "./plugins/llm";
-import {prompterPlugin} from "./plugins/prompter";
-import {contextManagerPlugin} from "./plugins/contextManager";
+import {mcpBankPlugin} from "./plugins/mcp";
+import {agentPlugin} from "./plugins/agent";
 import {SignupSchema, signupSchema} from "./schemas/signupSchema";
-import * as repl from "node:repl";
 import {v4} from "uuid";
 import cors from "@fastify/cors"
+import {parseClientEvent, ServerEvent} from "./websocket/protocol"
+import type {Message} from "./types"
 
 const fastify = Fastify({
-    logger: true
+    logger: true,
+    maxParamLength: 500 // JWT tokens in WebSocket URL can be ~250 chars
 }).withTypeProvider<ZodTypeProvider>()
 
 fastify.setValidatorCompiler(validatorCompiler)
@@ -37,10 +42,15 @@ fastify.register(knexPlugin)
 fastify.register(userRepositoryPlugin)
 fastify.register(accountRepositoryPlugin)
 fastify.register(transactionRepositoryPlugin)
+fastify.register(conversationRepositoryPlugin)
+fastify.register(messageRepositoryPlugin)
 fastify.register(llmPlugin)
-fastify.register(prompterPlugin)
-fastify.register(contextManagerPlugin)
-fastify.register(cors, {})
+fastify.register(mcpBankPlugin)
+fastify.register(agentPlugin)
+fastify.register(cors, {
+    origin: 'http://localhost:5173',
+    credentials: true,
+})
 
 fastify.decorate('authenticate', async (request, reply) => {
     // 1. Define the name of the cookie holding the token
@@ -82,16 +92,133 @@ fastify.decorate('authenticate', async (request, reply) => {
 });
 
 fastify.register(async function (fastify) {
-    fastify.get('/:accessToken', {websocket: true, onRequest: fastify.authenticate}, (socket, req: FastifyRequest) => {
-        const accessToken = (req.params as {accessToken: string}).accessToken
-        socket.on('message', async (message: string) => {
+
+    // --- Helper to send a typed server event over WebSocket ---
+    function send(socket: import('ws').WebSocket, event: ServerEvent) {
+        if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify(event))
+        }
+    }
+
+    // --- WebSocket route: /:accessToken ---
+    // Authentication via URL parameter: the JWT token is passed in the path.
+    // We verify it in onRequest instead of using the cookie-based authenticate decorator,
+    // because WebSocket connections can't easily send cookies.
+    fastify.get('/:accessToken', {
+        websocket: true,
+        onRequest: async (request, reply) => {
+            const token = (request.params as { accessToken: string }).accessToken
+            if (!token) {
+                return reply.status(401).send({ message: 'Unauthorized: Access token not provided' })
+            }
             try {
-                await fastify.knex('chats').insert({
-                    message: message.toString()
+                const decoded = fastify.jwt.verify(token)
+                request.user = decoded as User
+            } catch {
+                return reply.status(401).send({ message: 'Unauthorized: Invalid or expired token' })
+            }
+        }
+    }, async (socket, req: FastifyRequest) => {
+        const user = req.user as User
+
+        // --- Conversation lifecycle: find or create ---
+        let conversationId: string
+        try {
+            const existing = await fastify.conversationRepository.findByUserId(user.id)
+            if (existing.length > 0) {
+                // Resume most recent conversation
+                conversationId = existing[0].id
+                send(socket, {type: 'conversation_started', conversationId})
+
+                // Send history
+                const history = await fastify.messageRepository.getHistory(conversationId)
+                send(socket, {
+                    type: 'history',
+                    messages: history.map(m => ({role: m.role, content: m.content, created_at: m.created_at}))
                 })
-            } catch (error) {
-                console.log('Errore durante l\'inserimento del messaggio')
-                console.log(error)
+            } else {
+                // First-time user: create new conversation
+                const conv = await fastify.conversationRepository.create(user.id)
+                conversationId = conv.id
+                send(socket, {type: 'conversation_started', conversationId})
+            }
+        } catch (err) {
+            fastify.log.error({err}, 'Error initializing conversation')
+            send(socket, {type: 'error', message: 'Errore durante l\'inizializzazione della conversazione'})
+            return
+        }
+
+        // --- Message handler ---
+        socket.on('message', async (raw: Buffer | string) => {
+            const rawStr = raw.toString()
+            const event = parseClientEvent(rawStr)
+
+            if (!event) {
+                send(socket, {type: 'error', message: 'Formato messaggio non valido'})
+                return
+            }
+
+            // --- Handle new_conversation ---
+            if (event.type === 'new_conversation') {
+                try {
+                    const conv = await fastify.conversationRepository.create(user.id)
+                    conversationId = conv.id
+                    send(socket, {type: 'conversation_started', conversationId})
+                } catch (err) {
+                    fastify.log.error({err}, 'Error creating new conversation')
+                    send(socket, {type: 'error', message: 'Errore nella creazione della conversazione'})
+                }
+                return
+            }
+
+            // --- Handle message ---
+            if (event.type === 'message') {
+                try {
+                    // 1. Persist user message
+                    await fastify.messageRepository.create({
+                        conversationId,
+                        role: 'user',
+                        content: event.content
+                    })
+
+                    // 2. Load conversation history
+                    const dbHistory = await fastify.messageRepository.getHistory(conversationId)
+                    const agentHistory: Message[] = dbHistory
+                        .filter(m => m.role === 'user' || m.role === 'assistant')
+                        .map(m => ({role: m.role, content: m.content || ''}))
+                    // Remove the last entry (the message we just persisted) — runAgent receives it as 'message' param
+                    agentHistory.pop()
+
+                    // 3. Send typing indicator
+                    send(socket, {type: 'typing', active: true})
+
+                    // 4. Call agent (emits tool_call events in real time)
+                    const response = await fastify.runAgent(event.content, agentHistory, {
+                        id: user.id,
+                        role: user.role
+                    }, (toolName, result) => {
+                        send(socket, {type: 'tool_call', toolName, result})
+                    })
+
+                    // 5. Persist assistant response
+                    await fastify.messageRepository.create({
+                        conversationId,
+                        role: 'assistant',
+                        content: response
+                    })
+
+                    // 6. Update conversation timestamp
+                    await fastify.conversationRepository.updateTimestamp(conversationId)
+
+                    // 7. Send response + typing off
+                    send(socket, {type: 'message', role: 'assistant', content: response})
+                    send(socket, {type: 'typing', active: false})
+
+                } catch (err) {
+                    fastify.log.error({err}, 'Error processing message')
+                    send(socket, {type: 'typing', active: false})
+                    send(socket, {type: 'error', message: "Si è verificato un errore nell'elaborazione del messaggio"})
+                }
             }
         })
     })
@@ -151,6 +278,16 @@ fastify.register(async function (fastify) {
         return { user: req.user };
     });
 
+    // Short-lived WebSocket token (HTTP-only cookies are inaccessible from JS)
+    fastify.get('/ws-token', { onRequest: fastify.authenticate }, async (req, reply) => {
+        const user = req.user as User
+        const wsToken = fastify.jwt.sign(
+            { id: user.id, email: user.email, role: user.role },
+            { expiresIn: '2m' }
+        )
+        return { token: wsToken }
+    });
+
     fastify.post('/logout', async (req, reply) => {
         const cookieOptions = {
             path: '/',
@@ -189,48 +326,6 @@ fastify.register(async function (fastify) {
         }
     })
 
-    fastify.get('/private', {onRequest: fastify.authenticate}, async (req, reply) => {
-        if (!req.user) {
-            return reply.status(401).send({success: false, message: 'Utente non autenticato'})
-        }
-        if (req.user.role !== 'USER' && req.user.role !== 'ADMIN') {
-            return reply.status(401).send({success: false, message: 'Ruolo non valido'})
-        }
-
-        const actions = fastify.prompter[req.user.role]
-        console.log(actions)
-        if (!actions) {
-            return reply.status(401).send({success: false, message: 'Ruolo non valido'})
-        }
-
-        //Richiesta azione
-        const action = await fastify.askForAction("Vorrei i miei ultimi movimenti", actions)
-        if (!action) {
-            return reply.status(401).send({success: false, message: 'Azione non valida'})
-        }
-
-        console.log(action)
-
-        //Recupero contesto
-        const context = await fastify.contextManager[req.user.role][action](req.user.id)
-        if (!context) {
-            return reply.status(401).send({success: false, message: 'Contesto non valido'})
-        }
-
-        //Risposta finale
-        const executeResponse = await fastify.executeAction(actions[action], context)
-        if (!executeResponse) {
-            return reply.status(401).send({success: false, message: 'Risposta non valida'})
-        }
-
-        return {
-            message: 'Questo è un messaggio privato',
-            action,
-            context,
-            executeResponse,
-            user: req.user
-        }
-    })
 })
 
 async function start() {

@@ -1,11 +1,20 @@
 import {Knex} from "knex";
 import {FastifyInstance, FastifyPluginAsync} from "fastify";
 import fp from "fastify-plugin";
-import transactionRepository from "./transactionRepository";
-
 interface Transaction{
     id: string;
     accountid: string;
+    amount: number;
+    type: 'INCOME' | 'EXPENSE';
+    description: string | null;
+    date: Date;
+}
+
+interface CreateTransactionInput {
+    accountid: string;
+    amount: number;
+    type: 'INCOME' | 'EXPENSE';
+    description?: string;
 }
 
 class TransactionRepository {
@@ -18,7 +27,12 @@ class TransactionRepository {
     }
 
     findAllTransactionsByAccountId(accountid: string): Promise<Transaction[] | undefined> {
-        return this.db('transactions').where('accountid', accountid)
+        return this.db('transactions').where('accountid', accountid).orderBy('date', 'desc')
+    }
+
+    async create(data: CreateTransactionInput): Promise<Transaction> {
+        const [transaction] = await this.db('transactions').insert(data).returning('*')
+        return transaction
     }
 }
 
