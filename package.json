@@ -6,11 +6,13 @@
   "author": "",
   "main": "src/server.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test --require ts-node/register tests/conversation-utils.test.ts",
     "start:dev": "ts-node ./src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed:start": "npx knex seed:run --knexfile src/knexfile.ts"
+    "_per popolare e creare le tabelle fare i due comandi sottostanti, prima migrate e poi seed": "",
+    "seed:start": "npx knex seed:run --knexfile ../backend/src/knexfile.ts",
+    "migrate:start": "npx knex migrate:latest --knexfile ../backend/src/knexfile.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

@@ -15,6 +15,9 @@ export interface Message {
 export interface Conversation {
   id: string;
   user_id: string;
+  title: string;
+  title_source: 'auto' | 'manual';
+  last_message_at: Date;
   created_at: Date;
   updated_at: Date;
 }
